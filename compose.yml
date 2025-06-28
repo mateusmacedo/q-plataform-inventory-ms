@@ -1,0 +1,48 @@
+networks:
+  docker:
+    name: docker
+    external: true
+
+volumes:
+  db_data:
+  m2-repo:
+    driver: local
+    driver_opts:
+        type: none
+        device: /home/mateusanjos/.m2/repository
+        o: bind
+
+services:
+  inventory-db:
+    restart: unless-stopped
+    image: postgres:14
+    container_name: inventory-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: inventory
+    ports:
+      - "5433:5432"  # Mapeia porta 5432 do container para 5433 local
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      - docker
+
+  inventory-api-dev:
+      restart: unless-stopped
+      container_name: inventory-api-dev
+      build:
+        context: .
+        dockerfile: Dockerfile.dev
+      ports:
+        - "8083:8080"   # Quarkus HTTP
+        # - "5005:5005"   # Debug remoto
+      volumes:
+        - ./:/home/app  # Monta código-fonte local para hot-reload
+        - m2-repo:/root/.m2  # Cache de dependências Maven
+      environment:
+        # Permite debugging remoto sem bloqueio no container
+        - JAVA_OPTS=-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005
+      command: ["mvn", "quarkus:dev", "-Dquarkus.http.host=0.0.0.0"]
+      networks:
+        - docker
