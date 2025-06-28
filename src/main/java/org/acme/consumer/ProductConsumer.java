@@ -13,7 +13,6 @@ import org.jboss.logging.Logger;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.smallrye.mutiny.Uni;
-import io.smallrye.reactive.messaging.kafka.api.IncomingKafkaRecordMetadata;
 
 @ApplicationScoped
 public class ProductConsumer {
@@ -48,8 +47,8 @@ public class ProductConsumer {
                 .invoke(message::ack)
                 .invoke(item -> log.infof("Mensagem processada com sucesso: %s", item))
                 .onFailure()
-                .invoke(failure -> log.errorf("Mensagem falhou: %s, stack: %s",
-                        failure.getMessage(), failure.getStackTrace()))
+                .invoke(failure -> log.errorf("Mensagem falhou: %s",
+                        failure.getMessage()))
                 .replaceWithVoid();
     }
 }
