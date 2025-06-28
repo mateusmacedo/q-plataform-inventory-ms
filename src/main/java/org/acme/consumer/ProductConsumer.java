@@ -1,8 +1,11 @@
 package org.acme.consumer;
 
 import javax.enterprise.context.ApplicationScoped;
+import javax.enterprise.context.control.ActivateRequestContext;
 import javax.inject.Inject;
 
+import org.acme.dto.ProductInputDTO;
+import org.acme.service.InventoryService;
 import org.eclipse.microprofile.reactive.messaging.Incoming;
 import org.eclipse.microprofile.reactive.messaging.Message;
 import org.jboss.logging.Logger;
@@ -12,7 +15,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.smallrye.mutiny.Uni;
 import io.smallrye.reactive.messaging.kafka.api.IncomingKafkaRecordMetadata;
 
-
 @ApplicationScoped
 public class ProductConsumer {
     Logger log = Logger.getLogger(ProductConsumer.class);
@@ -20,25 +22,34 @@ public class ProductConsumer {
     @Inject
     ObjectMapper objectMapper;
 
+    @Inject
+    InventoryService inventoryService;
+
     /**
      * Método para processar mensagens de produtos recebidas.
      *
      * @param message Mensagem recebida contendo dados do produto
      */
     @Incoming("products-in")
+    @ActivateRequestContext
     public Uni<Void> consume(Message<String> message) {
-        var kafkaMetadata = message.getMetadata(IncomingKafkaRecordMetadata.class).orElse(null);
-        String traceId = kafkaMetadata != null && kafkaMetadata.getHeaders().lastHeader("X-Trace-Id") != null
-                ? new String(kafkaMetadata.getHeaders().lastHeader("X-Trace-Id").value())
-                : "N/A";
-        try {
-            ProductInputDTO payload = objectMapper.readValue(message.getPayload(), ProductInputDTO.class);
-            log.infof("[traceId=%s] Mensagem recebida do Kafka: id=%s, sku=%s, nome=%s", traceId, payload.getId(), payload.getSku(), payload.getName());
-            message.ack();
-        } catch (Exception e) {
-            log.errorf("[traceId=%s] Falha ao processar mensagem do Kafka: %s", traceId, e.getMessage());
-            return Uni.createFrom().failure(e);
-        }
-        return Uni.createFrom().voidItem();
+        log.infof("Mensagem recebida: %s", message.getPayload());
+
+        Uni<ProductInputDTO> payloadUni = Uni.createFrom().item(() -> {
+            try {
+                return objectMapper.readValue(message.getPayload(), ProductInputDTO.class);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        return payloadUni
+                .onItem().transformToUni(inventoryService::registerItem)
+                .invoke(message::ack)
+                .invoke(item -> log.infof("Mensagem processada com sucesso: %s", item))
+                .onFailure()
+                .invoke(failure -> log.errorf("Mensagem falhou: %s, stack: %s",
+                        failure.getMessage(), failure.getStackTrace()))
+                .replaceWithVoid();
     }
 }
